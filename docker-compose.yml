@@ -1,0 +1,283 @@
+
+
+services:
+  # ============================================================
+  # INFRASTRUCTURE
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-ecommerce}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+  mongo:
+    image: mongo:7-jammy
+    container_name: ecommerce-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # API GATEWAY
+  # ============================================================
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: ecommerce-api-gateway
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:4001}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service:4002}
+      PRODUCT_SERVICE_URL: ${PRODUCT_SERVICE_URL:-http://product-service:4003}
+      ORDER_SERVICE_URL: ${ORDER_SERVICE_URL:-http://order-service:4004}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:4005}
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # AUTH SERVICE
+  # ============================================================
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-auth-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4001
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ecommerce:ecommerce_password@postgres:5432/ecommerce}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4001/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # USER SERVICE
+  # ============================================================
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-user-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4002
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ecommerce:ecommerce_password@postgres:5432/ecommerce}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4002/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # PRODUCT SERVICE
+  # ============================================================
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-product-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4003
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/ecommerce-products}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4003/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # ORDER SERVICE
+  # ============================================================
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-order-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4004
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ecommerce:ecommerce_password@postgres:5432/ecommerce}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4004/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # PAYMENT SERVICE
+  # ============================================================
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-payment-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4005
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4005/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # NOTIFICATION SERVICE
+  # ============================================================
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-notification-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4006
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@yourdomain.com}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Your Store}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+
+  # ============================================================
+  # FRONTEND
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    container_name: ecommerce-frontend
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    depends_on:
+      - api-gateway
+    networks:
+      - ecommerce-network
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+
+networks:
+  ecommerce-network:
+    driver: bridge

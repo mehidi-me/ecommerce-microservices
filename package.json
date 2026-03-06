@@ -1,0 +1,27 @@
+{
+  "name": "ecommerce-microservices",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:down": "docker compose down",
+    "dev:logs": "docker compose logs -f",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
